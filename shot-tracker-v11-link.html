@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css" />
+<title>샷 트래커</title>
+<style>
+  :root {
+    --bg: #F4F2EF;
+    --card-bg: #FFFFFF;
+    --text-primary: #2A2422;
+    --text-secondary: #746B62;
+    --text-tertiary: #9C948C;
+    --accent: #7D2E45;
+    --accent-soft: #F7EAEE;
+    --track: #F0EBE7;
+    --shadow: 0 20px 40px -20px rgba(42, 36, 34, 0.16), 0 1px 2px rgba(42,36,34,0.04);
+    --divider: rgba(42, 36, 34, 0.09);
+    --tooltip-bg: #2A2422;
+    --tooltip-text: #FFFFFF;
+    --overlay: rgba(30, 24, 22, 0.42);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #191919;
+      --card-bg: #202020;
+      --text-primary: #EDE9E4;
+      --text-secondary: #B0A89F;
+      --text-tertiary: #857D75;
+      --accent: #E491A9;
+      --accent-soft: #35242A;
+      --track: #2B2B2B;
+      --shadow: 0 20px 40px -20px rgba(0,0,0,0.65), 0 1px 2px rgba(0,0,0,0.3);
+      --divider: rgba(255, 255, 255, 0.09);
+      --tooltip-bg: #EDE9E4;
+      --tooltip-text: #191919;
+      --overlay: rgba(0, 0, 0, 0.6);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", sans-serif;
+    padding: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .card {
+    position: relative;
+    width: 100%;
+    max-width: 279px;
+    background: var(--card-bg);
+    border-radius: clamp(16px, 5vw, 21px);
+    box-shadow: var(--shadow);
+    padding: clamp(16px, 5vw, 23px) clamp(15px, 4vw, 21px) clamp(15px, 4vw, 20px);
+    color: var(--text-primary);
+  }
+
+  /* ---- 테스트 전용: 상태 미리보기 토글 (유지) ---- */
+  .debug-toggle {
+    position: absolute; top: 12px; right: 12px;
+    font-size: 7.5px; font-weight: 600; letter-spacing: 0.1px;
+    color: var(--text-tertiary); background: transparent;
+    border: 1px dashed var(--divider); border-radius: 999px;
+    padding: 3px 8px; cursor: pointer; z-index: 3;
+    transition: color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  }
+  .debug-toggle:active { opacity: 0.6; }
+  .debug-toggle.active { color: var(--accent); border-color: var(--accent); }
+
+  /* ---- Top row: 약물 토글 ---- */
+  .top-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
+
+  .drug-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--accent-soft); color: var(--accent);
+    border: none; border-radius: 999px; padding: 5px 10px 5px 5px;
+    font-weight: 600; font-size: 10.5px; letter-spacing: -0.1px;
+    cursor: pointer; transition: opacity 0.15s ease, transform 0.1s ease;
+  }
+  .drug-pill:active { opacity: 0.6; transform: scale(0.97); }
+  .drug-pill .icon-dot {
+    width: 15px; height: 15px; border-radius: 50%; background: var(--accent);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .drug-pill .icon-dot svg { width: 7.5px; height: 7.5px; }
+  .drug-pill.switching .icon-dot { transform: rotate(180deg); }
+  .drug-pill .drug-label { font-weight: 700; display: inline-block; transition: opacity 0.18s ease, transform 0.18s ease; }
+  .drug-pill.switching .drug-label { opacity: 0; transform: translateY(3px); }
+  .drug-pill .hint { font-size: 8px; color: var(--text-tertiary); font-weight: 500; margin-left: 1px; }
+
+  /* ---- 콤보박스 공통 스타일(캡슐형) ---- */
+  .pill-select {
+    appearance: none; background: transparent; color: var(--text-secondary);
+    border: 1px solid var(--divider); border-radius: 999px; padding: 6px 22px 6px 11px;
+    font-size: 10px; font-weight: 600; cursor: pointer;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5'><path d='M1 1l3 3 3-3' stroke='%23746B62' stroke-width='1.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat: no-repeat; background-position: right 10px center;
+  }
+  .pill-select:focus { outline: none; border-color: var(--accent); }
+
+  /* ---- D-Day 게이지 ---- */
+  .gauge-wrap { display: flex; flex-direction: column; align-items: center; padding: clamp(20px, 6vw, 26px) 0 clamp(11px, 3vw, 15px); }
+
+  .gauge-track { fill: none; stroke: var(--track); stroke-width: 3.3; }
+  .gauge-progress {
+    fill: none; stroke: var(--accent); stroke-width: 3.3; stroke-linecap: round;
+    transform: rotate(-90deg); transform-origin: 50% 50%;
+    transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  /* 입력창 추가 이전의 정렬 방식으로 롤백: text-anchor만 사용, 고정 y좌표. 폰트 크기만 축소 유지 */
+  .gauge-center { font-size: clamp(17px, 5.4vw, 20px); font-weight: 700; letter-spacing: -0.4px; fill: var(--text-primary); }
+  .gauge-sub { font-size: 8.5px; fill: var(--text-secondary); font-weight: 600; letter-spacing: 0.1px; }
+
+  /* ---- 메인 화면: 캡슐 버튼 단 하나만 ---- */
+  .inject-btn {
+    margin-top: 15px; border: none; border-radius: 999px;
+    height: 30px; padding: 0 20px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 10.5px; font-weight: 600; letter-spacing: -0.1px; cursor: pointer;
+    background: var(--accent); color: var(--card-bg);
+    transition: opacity 0.15s ease, transform 0.1s ease, background 0.15s ease;
+  }
+  .inject-btn:active { opacity: 0.85; transform: scale(0.96); }
+  .inject-btn:disabled { background: var(--track); color: var(--text-tertiary); cursor: default; }
+  .inject-btn:disabled:active { transform: none; }
+
+  .divider { height: 1px; background: var(--divider); margin: 16px 0; }
+
+  /* ---- 라벨 공통 스타일 ---- */
+  .section-label { font-size: 10px; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.1px; }
+
+  /* ---- 체중 + 날짜 기록부 ---- */
+  .log-label { margin-bottom: 7px; }
+
+  .weight-row { display: flex; align-items: stretch; gap: 5px; }
+
+  .log-field {
+    height: 31px;
+    border: 1px solid var(--divider);
+    background: transparent;
+    border-radius: 10px;
+    padding: 0 8px;
+    font-size: 10.5px;
+    font-family: inherit;
+    color: var(--text-primary);
+    font-weight: 600;
+    min-width: 0;
+  }
+  .log-field::placeholder { color: var(--text-tertiary); font-weight: 500; }
+  .log-field:focus { outline: none; border-color: var(--accent); }
+  #weightInput { flex: 1 1 54px; }
+  #weightDateInput { flex: 1.3 1 100px; color: var(--text-secondary); font-weight: 600; font-size: 10px; }
+
+  .dose-field {
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='5'><path d='M1 1l3 3 3-3' stroke='%23746B62' stroke-width='1.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 20px;
+  }
+
+  .save-btn {
+    height: 31px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none; border-radius: 999px; padding: 0 12px;
+    background: var(--accent-soft);
+    color: var(--accent); font-weight: 700; font-size: 10px; cursor: pointer; white-space: nowrap;
+    line-height: 1;
+    transition: opacity 0.15s ease, transform 0.1s ease;
+  }
+  .save-btn:active { opacity: 0.65; transform: scale(0.96); }
+
+  /* ---- 감량 요약 ---- */
+  .loss-headline {
+    margin-top: 18px; font-size: 13.5px; font-weight: 600; letter-spacing: -0.2px;
+    color: var(--text-primary); text-align: center; line-height: 1.4;
+  }
+  .loss-headline .highlight { color: var(--accent); font-weight: 800; }
+  .loss-headline .muted { display: block; font-size: 9px; font-weight: 500; color: var(--text-secondary); margin-top: 3px; letter-spacing: 0; }
+
+  /* ---- 조회 시작일 ---- */
+  .range-row { display: flex; align-items: center; justify-content: space-between; margin-top: 13px; margin-bottom: 7px; }
+
+  .sparkline-wrap { margin-top: 3px; position: relative; }
+  .sparkline-area { fill: url(#sparklineGradient); }
+  .sparkline-line { fill: none; stroke: var(--accent); stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+  .marker-ring { fill: var(--card-bg); stroke: var(--accent); stroke-width: 1.1; }
+  .marker-core { fill: var(--accent); }
+  .marker-inject-ring { fill: var(--card-bg); stroke: var(--accent); stroke-width: 1.3; }
+  .marker-hit { fill: transparent; cursor: pointer; }
+  .axis-label { font-size: 8px; color: var(--text-tertiary); font-weight: 600; letter-spacing: 0.2px; }
+
+  .tooltip {
+    position: absolute; pointer-events: none; background: var(--tooltip-bg); color: var(--tooltip-text);
+    padding: 6px 9px; border-radius: 8px; font-size: 9.5px; font-weight: 600; white-space: nowrap;
+    transform: translate(-50%, calc(-100% - 9px)); opacity: 0;
+    transition: opacity 0.15s ease, transform 0.15s ease; z-index: 5; text-align: left;
+  }
+  .tooltip.visible { opacity: 1; transform: translate(-50%, calc(-100% - 5px)); }
+  .tooltip::after {
+    content: ""; position: absolute; left: 50%; top: 100%; transform: translateX(-50%);
+    border: 4px solid transparent; border-top-color: var(--tooltip-bg);
+  }
+  .tooltip .t-date { opacity: 0.65; font-weight: 500; }
+  .tooltip .t-dose { display: block; margin-top: 2px; font-weight: 600; opacity: 0.85; font-size: 8.5px; }
+
+  /* ---- 푸터 ---- */
+  .footer-note { margin-top: 16px; text-align: center; }
+  .footer-text { font-size: 8.5px; color: var(--text-tertiary); letter-spacing: 0.1px; }
+  .footer-divider { height: 1px; background: var(--divider); width: 56%; margin: 8px auto 7px; }
+  .footer-brand {
+    font-size: 8px; font-weight: 700; letter-spacing: 2.5px; color: var(--text-tertiary);
+    text-decoration: none; cursor: pointer;
+    transition: color 0.15s ease;
+  }
+  .footer-brand:hover { color: var(--accent); }
+
+  /* ---- 모달: 놓친 투약 기록용 팝업 ---- */
+  .modal-overlay {
+    position: fixed; inset: 0; background: var(--overlay);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; z-index: 20;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .modal-overlay.open { opacity: 1; pointer-events: auto; }
+
+  .modal-card {
+    width: 100%; max-width: 252px;
+    background: var(--card-bg);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    padding: 20px 18px 18px;
+    transform: translateY(8px) scale(0.98);
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .modal-overlay.open .modal-card { transform: translateY(0) scale(1); }
+
+  .modal-title { font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px; }
+  .modal-desc { font-size: 9.5px; color: var(--text-secondary); font-weight: 500; margin-bottom: 16px; }
+  .modal-field-label { font-size: 9.5px; color: var(--text-secondary); font-weight: 700; margin-bottom: 6px; margin-top: 12px; }
+  .modal-field-label:first-of-type { margin-top: 0; }
+
+  .modal-actions { display: flex; gap: 7px; margin-top: 18px; }
+  .modal-cancel-btn {
+    flex: 1; height: 32px; border: 1px solid var(--divider); background: transparent;
+    color: var(--text-secondary); border-radius: 999px; font-size: 10.5px; font-weight: 600;
+    cursor: pointer; transition: opacity 0.15s ease, transform 0.1s ease;
+  }
+  .modal-cancel-btn:active { opacity: 0.6; transform: scale(0.97); }
+  .modal-save-btn {
+    flex: 1.4; height: 32px; border: none; background: var(--accent);
+    color: var(--card-bg); border-radius: 999px; font-size: 10.5px; font-weight: 700;
+    cursor: pointer; transition: opacity 0.15s ease, transform 0.1s ease;
+  }
+  .modal-save-btn:active { opacity: 0.85; transform: scale(0.97); }
+
+  /* ---- 기록 관리(수정/삭제) ---- */
+  .history-link-row { display: flex; justify-content: center; margin-top: 16px; }
+  .history-open-btn {
+    position: relative; overflow: hidden;
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 30px; padding: 0 20px;
+    border: 1px solid var(--accent); border-radius: 999px;
+    font-size: 10.5px; font-weight: 600; letter-spacing: -0.1px; cursor: pointer;
+    background: transparent; color: var(--accent);
+    font-family: inherit;
+    transition: opacity 0.15s ease, transform 0.1s ease;
+  }
+  .history-open-btn:active { opacity: 0.85; transform: scale(0.96); }
+  .history-open-btn .label-default,
+  .history-open-btn .label-hover {
+    white-space: nowrap;
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
+  }
+  .history-open-btn .label-hover {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transform: translateY(8px);
+  }
+  .history-open-btn:hover .label-default { opacity: 0; transform: translateY(-8px); }
+  .history-open-btn:hover .label-hover { opacity: 1; transform: translateY(0); }
+
+  .history-card { max-width: 268px; }
+  .history-tabs { display: flex; gap: 6px; margin-top: 14px; margin-bottom: 10px; }
+  .history-tab {
+    flex: 1; height: 28px; border: 1px solid var(--divider); background: transparent;
+    border-radius: 999px; font-size: 10px; font-weight: 700; color: var(--text-secondary);
+    cursor: pointer; font-family: inherit; transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .history-tab.active { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+
+  .history-list { max-height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .history-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px; background: var(--track); border-radius: 10px;
+  }
+  .history-row-info { display: flex; flex-direction: column; gap: 1px; }
+  .history-row-date { font-weight: 700; color: var(--text-primary); font-size: 10px; }
+  .history-row-detail { font-size: 9px; color: var(--text-secondary); font-weight: 600; }
+  .history-delete-btn {
+    width: 24px; height: 24px; border-radius: 50%; border: none; background: transparent;
+    color: var(--text-tertiary); cursor: pointer; font-size: 12px; line-height: 1;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    transition: color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+  }
+  .history-delete-btn:active { transform: scale(0.9); color: var(--accent); background: var(--accent-soft); }
+  .history-empty { text-align: center; font-size: 10px; color: var(--text-tertiary); padding: 24px 0; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <button class="debug-toggle" id="debugToggle">상태 테스트: 실제값</button>
+
+  <div class="top-row">
+    <button class="drug-pill" id="drugToggle">
+      <span class="icon-dot">
+        <svg viewBox="0 0 12 12" fill="none"><rect x="1" y="5" width="10" height="2.4" rx="1.2" fill="white" transform="rotate(-45 6 6)"/></svg>
+      </span>
+      <span class="drug-label" id="drugName">위고비</span>
+      <span class="hint">탭해서 전환</span>
+    </button>
+    <select class="pill-select" id="doseSelect"></select>
+  </div>
+
+  <div class="gauge-wrap">
+    <svg width="116" height="116" viewBox="0 0 116 116">
+      <circle class="gauge-track" cx="58" cy="58" r="49"></circle>
+      <circle class="gauge-progress" id="gaugeProgress" cx="58" cy="58" r="49"></circle>
+      <text x="58" y="56" text-anchor="middle" class="gauge-center" id="gaugeText">D-2</text>
+      <text x="58" y="71" text-anchor="middle" class="gauge-sub" id="gaugeSub">다음 투약까지</text>
+    </svg>
+    <button class="inject-btn" id="actionBtn">투약일이 아니에요</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <div>
+    <div class="section-label log-label">체중 기록</div>
+    <div class="weight-row">
+      <input class="log-field" id="weightInput" type="number" step="0.1" placeholder="kg" inputmode="decimal">
+      <input class="log-field" id="weightDateInput" type="date">
+      <button class="save-btn" id="saveWeightBtn">입력 ↵</button>
+    </div>
+  </div>
+
+  <div class="loss-headline" id="lossHeadline">
+    기록을 시작해보세요
+    <span class="muted">체중을 입력하면 변화가 그래프로 그려져요</span>
+  </div>
+
+  <div class="range-row">
+    <span class="section-label">조회 시작일</span>
+    <select class="pill-select" id="rangeSelect">
+      <option value="all">전체</option>
+      <option value="14">최근 14일</option>
+      <option value="30">최근 30일</option>
+      <option value="custom">직접 선택</option>
+    </select>
+  </div>
+  <input class="log-field" id="customRangeInput" type="date" style="display:none; width:100%; margin-bottom:10px;">
+
+  <div class="sparkline-wrap" id="sparklineWrap"></div>
+
+  <div class="history-link-row">
+    <button class="history-open-btn" id="openHistoryBtn">
+      <span class="label-default">전체 기록 보기</span>
+      <span class="label-hover">수정 / 삭제</span>
+    </button>
+  </div>
+
+  <div class="footer-note">
+    <div class="footer-text">라이트 버전 · 이 기기에만 저장돼요</div>
+    <div class="footer-divider"></div>
+    <a class="footer-brand" href="https://ctee.kr/place/sottosystem" target="_blank" rel="noopener noreferrer">SOTTOSYSTEM</a>
+  </div>
+</div>
+
+<!-- 놓친 투약(또는 첫 투약) 기록용 모달 -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-card">
+    <div class="modal-title">투약 기록 추가</div>
+    <div class="modal-desc">실제로 투약한 날짜와 용량을 선택해주세요</div>
+
+    <div class="modal-field-label">투약 날짜</div>
+    <input class="log-field" id="modalDateInput" type="date" style="width:100%;">
+
+    <div class="modal-field-label">투약 용량</div>
+    <select class="log-field dose-field" id="modalDoseSelect" style="width:100%;"></select>
+
+    <div class="modal-actions">
+      <button class="modal-cancel-btn" id="modalCancelBtn">취소</button>
+      <button class="modal-save-btn" id="modalSaveBtn">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 기록 관리(수정/삭제) 모달 -->
+<div class="modal-overlay" id="historyOverlay">
+  <div class="modal-card history-card">
+    <div class="modal-title">기록 관리</div>
+    <div class="modal-desc">잘못된 기록은 삭제한 뒤 다시 입력해주세요</div>
+
+    <div class="history-tabs">
+      <button class="history-tab active" id="historyTabWeight" data-tab="weight">체중 기록</button>
+      <button class="history-tab" id="historyTabInjection" data-tab="injection">투약 기록</button>
+    </div>
+
+    <div class="history-list" id="historyList"></div>
+
+    <div class="modal-actions">
+      <button class="modal-cancel-btn" id="historyCloseBtn" style="flex:1;">닫기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---------- 데이터 정의 ----------
+  const DOSES = {
+    "위고비": ["0.25mg", "0.5mg", "1.0mg", "1.7mg", "2.4mg"],
+    "마운자로": ["2.5mg", "5.0mg", "7.5mg", "10.0mg", "12.5mg", "15.0mg"]
+  };
+  const CYCLE_DAYS = 7;
+  const STORAGE_KEYS = {
+    injections: "shotTracker.injections",
+    weights: "shotTracker.weights",
+    settings: "shotTracker.settings"
+  };
+
+  function todayStr() { return new Date().toISOString().slice(0, 10); }
+  function daysBetween(a, b) { const MS = 86400000; return Math.round((new Date(b) - new Date(a)) / MS); }
+
+  // localStorage가 차단된 환경(직접 파일 열기, 노션 iframe 샌드박스 등)에서도
+  // 스크립트 전체가 죽지 않도록 인메모리 폴백을 둔다.
+  const memoryStore = {};
+  let storageAvailable = true;
+  try {
+    const testKey = "__shotTracker_test__";
+    window.localStorage.setItem(testKey, "1");
+    window.localStorage.removeItem(testKey);
+  } catch (e) {
+    storageAvailable = false;
+  }
+
+  function load(key, fallback) {
+    try {
+      if (!storageAvailable) {
+        return memoryStore[key] !== undefined ? JSON.parse(memoryStore[key]) : fallback;
+      }
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) { return fallback; }
+  }
+  function save(key, value) {
+    try {
+      if (!storageAvailable) { memoryStore[key] = JSON.stringify(value); return; }
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      storageAvailable = false;
+      memoryStore[key] = JSON.stringify(value);
+    }
+  }
+
+  function seedIfEmpty() {
+    if (load(STORAGE_KEYS.injections, null) === null) {
+      const t = new Date();
+      const mk = (offset) => { const d = new Date(t); d.setDate(d.getDate() - offset); return d.toISOString().slice(0, 10); };
+      save(STORAGE_KEYS.injections, [
+        { date: mk(19), drug: "위고비", dose: "0.25mg" },
+        { date: mk(12), drug: "위고비", dose: "0.25mg" },
+        { date: mk(5), drug: "위고비", dose: "0.5mg" }
+      ]);
+      save(STORAGE_KEYS.weights, [
+        { date: mk(19), weight: 69.4 },
+        { date: mk(16), weight: 68.6 },
+        { date: mk(12), weight: 67.8 },
+        { date: mk(9), weight: 67.1 },
+        { date: mk(5), weight: 65.9 },
+        { date: mk(2), weight: 65.2 }
+      ]);
+      save(STORAGE_KEYS.settings, { drug: "위고비", dose: "0.5mg" });
+    }
+  }
+  seedIfEmpty();
+
+  let settings = load(STORAGE_KEYS.settings, { drug: "위고비", dose: "0.25mg" });
+  let injections = load(STORAGE_KEYS.injections, []);
+  let weights = load(STORAGE_KEYS.weights, []);
+
+  // ---------- DOM ----------
+  const drugToggle = document.getElementById("drugToggle");
+  const drugNameEl = document.getElementById("drugName");
+  const doseSelect = document.getElementById("doseSelect");
+  const gaugeProgress = document.getElementById("gaugeProgress");
+  const gaugeText = document.getElementById("gaugeText");
+  const gaugeSub = document.getElementById("gaugeSub");
+  const actionBtn = document.getElementById("actionBtn");
+  const weightInput = document.getElementById("weightInput");
+  const weightDateInput = document.getElementById("weightDateInput");
+  const saveWeightBtn = document.getElementById("saveWeightBtn");
+  const lossHeadline = document.getElementById("lossHeadline");
+  const rangeSelect = document.getElementById("rangeSelect");
+  const customRangeInput = document.getElementById("customRangeInput");
+  const sparklineWrap = document.getElementById("sparklineWrap");
+  const debugToggle = document.getElementById("debugToggle");
+  const modalOverlay = document.getElementById("modalOverlay");
+  const modalDateInput = document.getElementById("modalDateInput");
+  const modalDoseSelect = document.getElementById("modalDoseSelect");
+  const modalCancelBtn = document.getElementById("modalCancelBtn");
+  const modalSaveBtn = document.getElementById("modalSaveBtn");
+  const openHistoryBtn = document.getElementById("openHistoryBtn");
+  const historyOverlay = document.getElementById("historyOverlay");
+  const historyList = document.getElementById("historyList");
+  const historyCloseBtn = document.getElementById("historyCloseBtn");
+  const historyTabWeight = document.getElementById("historyTabWeight");
+  const historyTabInjection = document.getElementById("historyTabInjection");
+
+  weightDateInput.value = todayStr();
+  weightDateInput.max = todayStr();
+
+  const RADIUS = 49;
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+  gaugeProgress.style.strokeDasharray = `${CIRCUMFERENCE}`;
+
+  // ---------- 렌더: 상단 약물/용량 ----------
+  function renderDrugAndDose() {
+    drugNameEl.textContent = settings.drug;
+    doseSelect.innerHTML = "";
+    DOSES[settings.drug].forEach(d => {
+      const opt = document.createElement("option");
+      opt.value = d; opt.textContent = d;
+      if (d === settings.dose) opt.selected = true;
+      doseSelect.appendChild(opt);
+    });
+    if (!DOSES[settings.drug].includes(settings.dose)) {
+      settings.dose = DOSES[settings.drug][0];
+      doseSelect.value = settings.dose;
+    }
+  }
+
+  drugToggle.addEventListener("click", () => {
+    drugToggle.classList.add("switching");
+    setTimeout(() => {
+      const names = Object.keys(DOSES);
+      const nextIdx = (names.indexOf(settings.drug) + 1) % names.length;
+      settings.drug = names[nextIdx];
+      settings.dose = DOSES[settings.drug][0];
+      save(STORAGE_KEYS.settings, settings);
+      renderDrugAndDose();
+      drugToggle.classList.remove("switching");
+    }, 160);
+  });
+
+  doseSelect.addEventListener("change", (e) => {
+    settings.dose = e.target.value;
+    save(STORAGE_KEYS.settings, settings);
+  });
+
+  // ---------- 테스트: 상태 미리보기 토글 (실제값 → D-Day 강제 → 놓침 강제 → 실제값) ----------
+  let debugMode = 0; // 0: 실제값, 1: D-Day 강제, 2: 놓침 강제
+  const DEBUG_LABELS = ["상태 테스트: 실제값", "상태 테스트: D-Day", "상태 테스트: 놓침"];
+  debugToggle.addEventListener("click", () => {
+    debugMode = (debugMode + 1) % 3;
+    debugToggle.classList.toggle("active", debugMode !== 0);
+    debugToggle.textContent = DEBUG_LABELS[debugMode];
+    renderGaugeAndButton();
+  });
+
+  // ---------- 투약 상태 계산 + 게이지/버튼 렌더 ----------
+  function getLastInjection() {
+    if (injections.length === 0) return null;
+    return [...injections].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+  }
+
+  function renderGaugeAndButton() {
+    const last = getLastInjection();
+
+    if (!last) {
+      gaugeText.textContent = "-";
+      gaugeSub.textContent = "투약 기록 없음";
+      gaugeProgress.style.strokeDashoffset = CIRCUMFERENCE;
+      actionBtn.dataset.state = "first";
+      actionBtn.disabled = false;
+      actionBtn.textContent = "첫 투약 기록하기";
+      return;
+    }
+
+    const nextDateObj = new Date(last.date);
+    nextDateObj.setDate(nextDateObj.getDate() + CYCLE_DAYS);
+    const nextDate = nextDateObj.toISOString().slice(0, 10);
+    const rawRemaining = daysBetween(todayStr(), nextDate);
+    const loggedToday = last.date === todayStr();
+
+    let state, remaining;
+    if (debugMode === 1) {
+      state = "due"; remaining = 0;
+    } else if (debugMode === 2) {
+      state = "missed"; remaining = -3;
+    } else if (loggedToday) {
+      state = "completed"; remaining = rawRemaining;
+    } else if (rawRemaining > 0) {
+      state = "waiting"; remaining = rawRemaining;
+    } else if (rawRemaining === 0) {
+      state = "due"; remaining = 0;
+    } else {
+      state = "missed"; remaining = rawRemaining;
+    }
+
+    // ---- 게이지 표시 ----
+    if (remaining > 0) {
+      gaugeText.textContent = `D-${remaining}`;
+      gaugeSub.textContent = "다음 투약까지";
+      const ratio = Math.min(remaining / CYCLE_DAYS, 1);
+      gaugeProgress.style.strokeDashoffset = `${CIRCUMFERENCE * ratio}`;
+    } else if (state === "missed") {
+      gaugeText.textContent = `D+${Math.abs(remaining)}`;
+      gaugeSub.textContent = "투약 예정일이 지났어요";
+      gaugeProgress.style.strokeDashoffset = 0;
+    } else {
+      gaugeText.textContent = "D-Day";
+      gaugeSub.textContent = state === "completed" ? "오늘 투약 완료!" : "오늘 투약일이에요";
+      gaugeProgress.style.strokeDashoffset = 0;
+    }
+
+    // ---- 버튼 표시 ----
+    actionBtn.dataset.state = state;
+    if (state === "waiting") {
+      actionBtn.disabled = true;
+      actionBtn.textContent = "투약일이 아니에요";
+    } else if (state === "due") {
+      actionBtn.disabled = false;
+      actionBtn.textContent = "오늘의 투약 완료";
+    } else if (state === "completed") {
+      actionBtn.disabled = true;
+      actionBtn.textContent = "투약 완료됨";
+    } else if (state === "missed") {
+      actionBtn.disabled = false;
+      actionBtn.textContent = "투약 기록하기";
+    }
+  }
+
+  function logInjection(date, drug, dose) {
+    const idx = injections.findIndex(i => i.date === date);
+    if (idx >= 0) injections[idx] = { date, drug, dose };
+    else injections.push({ date, drug, dose });
+    save(STORAGE_KEYS.injections, injections);
+
+    // 실제 기록이 저장되면 디버그 미리보기는 끄고 실제 상태를 바로 보여준다.
+    // (이렇게 해야 방금 누른 결과가 즉시 반영되고, 이후 다시 debugToggle로 다른 상태를 자유롭게 테스트할 수 있다)
+    if (debugMode !== 0) {
+      debugMode = 0;
+      debugToggle.classList.remove("active");
+      debugToggle.textContent = DEBUG_LABELS[0];
+    }
+
+    renderGaugeAndButton();
+    renderLossAndChart();
+  }
+
+  // ---------- 메인 버튼 클릭: 상태에 따라 즉시 기록 or 모달 오픈 ----------
+  actionBtn.addEventListener("click", () => {
+    const state = actionBtn.dataset.state;
+    if (state === "due") {
+      logInjection(todayStr(), settings.drug, settings.dose);
+    } else if (state === "first" || state === "missed") {
+      openModal();
+    }
+  });
+
+  // ---------- 모달 ----------
+  function populateModalDose() {
+    modalDoseSelect.innerHTML = "";
+    DOSES[settings.drug].forEach(d => {
+      const opt = document.createElement("option");
+      opt.value = d; opt.textContent = d;
+      if (d === settings.dose) opt.selected = true;
+      modalDoseSelect.appendChild(opt);
+    });
+  }
+
+  function openModal() {
+    populateModalDose();
+    modalDateInput.value = todayStr();
+    modalDateInput.max = todayStr();
+    modalOverlay.classList.add("open");
+  }
+  function closeModal() { modalOverlay.classList.remove("open"); }
+
+  modalCancelBtn.addEventListener("click", closeModal);
+  modalOverlay.addEventListener("click", (e) => { if (e.target === modalOverlay) closeModal(); });
+
+  modalSaveBtn.addEventListener("click", () => {
+    const date = modalDateInput.value || todayStr();
+    const dose = modalDoseSelect.value || DOSES[settings.drug][0];
+    logInjection(date, settings.drug, dose);
+    closeModal();
+  });
+
+  // ---------- 기록 관리(수정/삭제) ----------
+  let historyTab = "weight";
+
+  function openHistory() {
+    renderHistoryList();
+    historyOverlay.classList.add("open");
+  }
+  function closeHistory() { historyOverlay.classList.remove("open"); }
+
+  openHistoryBtn.addEventListener("click", openHistory);
+  historyCloseBtn.addEventListener("click", closeHistory);
+  historyOverlay.addEventListener("click", (e) => { if (e.target === historyOverlay) closeHistory(); });
+
+  [historyTabWeight, historyTabInjection].forEach(tabBtn => {
+    tabBtn.addEventListener("click", () => {
+      historyTab = tabBtn.dataset.tab;
+      historyTabWeight.classList.toggle("active", historyTab === "weight");
+      historyTabInjection.classList.toggle("active", historyTab === "injection");
+      renderHistoryList();
+    });
+  });
+
+  function renderHistoryList() {
+    historyList.innerHTML = "";
+    const items = historyTab === "weight"
+      ? [...weights].sort((a, b) => new Date(b.date) - new Date(a.date))
+      : [...injections].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    if (items.length === 0) {
+      historyList.innerHTML = `<div class="history-empty">${historyTab === "weight" ? "체중" : "투약"} 기록이 없어요</div>`;
+      return;
+    }
+
+    items.forEach(item => {
+      const row = document.createElement("div");
+      row.className = "history-row";
+
+      const info = document.createElement("div");
+      info.className = "history-row-info";
+      const dateEl = document.createElement("div");
+      dateEl.className = "history-row-date";
+      dateEl.textContent = item.date;
+      const detailEl = document.createElement("div");
+      detailEl.className = "history-row-detail";
+      detailEl.textContent = historyTab === "weight" ? `${item.weight}kg` : `${item.drug} ${item.dose}`;
+      info.appendChild(dateEl);
+      info.appendChild(detailEl);
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "history-delete-btn";
+      delBtn.setAttribute("aria-label", "삭제");
+      delBtn.textContent = "✕";
+      delBtn.addEventListener("click", () => {
+        if (historyTab === "weight") {
+          weights = weights.filter(w => w.date !== item.date);
+          save(STORAGE_KEYS.weights, weights);
+          renderLossAndChart();
+        } else {
+          injections = injections.filter(i => i.date !== item.date);
+          save(STORAGE_KEYS.injections, injections);
+          renderGaugeAndButton();
+          renderLossAndChart();
+        }
+        renderHistoryList();
+      });
+
+      row.appendChild(info);
+      row.appendChild(delBtn);
+      historyList.appendChild(row);
+    });
+  }
+
+  // ---------- 체중 입력 ----------
+  saveWeightBtn.addEventListener("click", () => {
+    const val = parseFloat(weightInput.value);
+    const date = weightDateInput.value || todayStr();
+    if (isNaN(val) || val <= 0) { weightInput.focus(); return; }
+    const existingIdx = weights.findIndex(w => w.date === date);
+    if (existingIdx >= 0) weights[existingIdx].weight = val;
+    else weights.push({ date, weight: val });
+    save(STORAGE_KEYS.weights, weights);
+    weightInput.value = "";
+    renderLossAndChart();
+  });
+  weightInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveWeightBtn.click(); });
+
+  // ---------- 조회 시작일 필터 ----------
+  rangeSelect.addEventListener("change", () => {
+    customRangeInput.style.display = rangeSelect.value === "custom" ? "block" : "none";
+    if (rangeSelect.value === "custom" && !customRangeInput.value) {
+      const sorted = [...weights].sort((a, b) => new Date(a.date) - new Date(b.date));
+      customRangeInput.value = sorted.length ? sorted[0].date : todayStr();
+    }
+    renderLossAndChart();
+  });
+  customRangeInput.addEventListener("change", renderLossAndChart);
+
+  function getRangeStartDate() {
+    if (rangeSelect.value === "all") return null;
+    if (rangeSelect.value === "custom") return customRangeInput.value || null;
+    const days = parseInt(rangeSelect.value, 10);
+    const d = new Date();
+    d.setDate(d.getDate() - days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  // ---------- 감량 요약 + 차트 ----------
+  function renderLossAndChart() {
+    const allSorted = [...weights].sort((a, b) => new Date(a.date) - new Date(b.date));
+    const startDate = getRangeStartDate();
+    const sorted = startDate ? allSorted.filter(w => w.date >= startDate) : allSorted;
+
+    if (allSorted.length === 0) {
+      lossHeadline.innerHTML = `기록을 시작해보세요<span class="muted">체중을 입력하면 변화가 그래프로 그려져요</span>`;
+      sparklineWrap.innerHTML = "";
+      return;
+    }
+    if (sorted.length === 0) {
+      lossHeadline.innerHTML = `선택한 기간에 기록이 없어요<span class="muted">조회 시작일을 조정해보세요</span>`;
+      sparklineWrap.innerHTML = "";
+      return;
+    }
+
+    const first = sorted[0].weight;
+    const latest = sorted[sorted.length - 1].weight;
+    const diff = (latest - first).toFixed(1);
+    const lost = Math.abs(diff);
+
+    if (sorted.length === 1) {
+      lossHeadline.innerHTML = `기준 체중 <span class="highlight">${first}kg</span> 기록 완료<span class="muted">다음 기록부터 변화가 표시돼요</span>`;
+    } else if (diff <= 0) {
+      lossHeadline.innerHTML = `기준일 대비 총 <span class="highlight">-${lost}kg</span> 감량 성공<span class="muted">${sorted[0].date} 대비 ${sorted.length}회 기록</span>`;
+    } else {
+      lossHeadline.innerHTML = `기준일 대비 <span class="highlight">+${lost}kg</span><span class="muted">괜찮아요, 꾸준히 기록해봐요</span>`;
+    }
+    renderSparkline(sorted);
+  }
+
+  // ---------- 스파크라인 (곡선 + 마커 + 툴팁) ----------
+  function smoothPath(points) {
+    if (points.length < 2) return "";
+    if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+    let d = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i - 1] || points[i];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = points[i + 2] || p2;
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+    }
+    return d;
+  }
+
+  let tooltipEl = null;
+
+  function renderSparkline(sorted) {
+    const W = 236, H = 69, PAD_X = 5, PAD_Y = 10;
+    const weightsArr = sorted.map(d => d.weight);
+    const min = Math.min(...weightsArr), max = Math.max(...weightsArr);
+    const range = max - min || 1;
+    const xStep = sorted.length > 1 ? (W - PAD_X * 2) / (sorted.length - 1) : 0;
+
+    const injectionMap = {};
+    injections.forEach(i => { injectionMap[i.date] = i; });
+
+    const points = sorted.map((d, i) => {
+      const x = PAD_X + i * xStep;
+      const norm = (d.weight - min) / range;
+      const y = PAD_Y + (1 - norm) * (H - PAD_Y * 2);
+      return { x, y, date: d.date, weight: d.weight, injection: injectionMap[d.date] || null };
+    });
+
+    const linePath = smoothPath(points);
+    const areaPath = `${linePath} L ${points[points.length - 1].x.toFixed(1)} ${H - PAD_Y} L ${points[0].x.toFixed(1)} ${H - PAD_Y} Z`;
+
+    const svg = `
+      <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" id="sparkSvg">
+        <defs>
+          <linearGradient id="sparklineGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.22" />
+            <stop offset="100%" stop-color="var(--accent)" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+        <path class="sparkline-area" d="${areaPath}"></path>
+        <path class="sparkline-line" d="${linePath}"></path>
+        ${points.map(p => `
+          <circle class="${p.injection ? 'marker-inject-ring' : 'marker-ring'}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.injection ? 4 : 2.8}"></circle>
+          <circle class="marker-core" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="1.1"></circle>
+          <circle class="marker-hit" data-date="${p.date}" data-weight="${p.weight}"
+            data-drug="${p.injection ? p.injection.drug : ''}" data-dose="${p.injection ? p.injection.dose : ''}"
+            cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="9"></circle>
+        `).join("")}
+      </svg>
+      <div style="display:flex; justify-content:space-between; margin-top:4px;">
+        <span class="axis-label">${sorted[0].date.slice(5)}</span>
+        <span class="axis-label">${sorted[sorted.length - 1].date.slice(5)}</span>
+      </div>
+      <div class="tooltip" id="sparkTooltip"></div>
+    `;
+    sparklineWrap.innerHTML = svg;
+    attachTooltipHandlers();
+  }
+
+  function attachTooltipHandlers() {
+    const wrap = sparklineWrap;
+    const svg = document.getElementById("sparkSvg");
+    tooltipEl = document.getElementById("sparkTooltip");
+    const hits = svg.querySelectorAll(".marker-hit");
+
+    hits.forEach(hit => {
+      hit.addEventListener("mouseenter", () => showTooltip(hit, wrap));
+      hit.addEventListener("mousemove", () => showTooltip(hit, wrap));
+      hit.addEventListener("mouseleave", hideTooltip);
+      hit.addEventListener("touchstart", (e) => { e.preventDefault(); showTooltip(hit, wrap); }, { passive: false });
+    });
+  }
+
+  function showTooltip(hit, wrap) {
+    const wrapRect = wrap.getBoundingClientRect();
+    const hitRect = hit.getBoundingClientRect();
+    const x = hitRect.left + hitRect.width / 2 - wrapRect.left;
+    const y = hitRect.top - wrapRect.top;
+    const date = hit.getAttribute("data-date");
+    const weight = hit.getAttribute("data-weight");
+    const drug = hit.getAttribute("data-drug");
+    const dose = hit.getAttribute("data-dose");
+    tooltipEl.innerHTML = `<span class="t-date">${date.slice(5).replace("-", ".")}</span> · ${weight}kg${drug ? `<span class="t-dose">${drug} ${dose} 투약</span>` : ""}`;
+    tooltipEl.style.left = `${x}px`;
+    tooltipEl.style.top = `${y}px`;
+    tooltipEl.classList.add("visible");
+  }
+  function hideTooltip() { if (tooltipEl) tooltipEl.classList.remove("visible"); }
+
+  // ---------- 초기 렌더 ----------
+  renderDrugAndDose();
+  renderGaugeAndButton();
+  renderLossAndChart();
+</script>
+
+</body>
+</html>
